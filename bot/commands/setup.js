@@ -38,6 +38,15 @@ module.exports = {
         )
     )
     .addSubcommand(sub =>
+      sub.setName('salon_bienvenue')
+        .setDescription('Définir le salon où ping les nouveaux membres (message supprimé après 5s)')
+        .addChannelOption(opt =>
+          opt.setName('salon')
+            .setDescription('Le salon de bienvenue')
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(sub =>
       sub.setName('voir')
         .setDescription('Voir la configuration actuelle')
     ),
@@ -63,10 +72,16 @@ module.exports = {
       config.set(guildId, 'refusMessage', message);
       await interaction.editReply({ content: `✅ Message de refus configuré :\n> ${message}` });
 
+    } else if (sub === 'salon_bienvenue') {
+      const salon = interaction.options.getChannel('salon');
+      config.set(guildId, 'welcomeChannelId', salon.id);
+      await interaction.editReply({ content: `✅ Salon de bienvenue configuré : ${salon}\nLes nouveaux membres y seront pingés et le message disparaît après **5 secondes**.` });
+
     } else if (sub === 'voir') {
       const roleId = config.get(guildId, 'premiumRoleId');
       const catId = config.get(guildId, 'ticketCategoryId');
       const refusMsg = config.get(guildId, 'refusMessage');
+      const welcomeId = config.get(guildId, 'welcomeChannelId');
 
       const embed = new EmbedBuilder()
         .setTitle('⚙️ Configuration actuelle')
@@ -74,6 +89,7 @@ module.exports = {
         .addFields(
           { name: '💎 Rôle premium', value: roleId ? `<@&${roleId}>` : '*Non configuré*', inline: true },
           { name: '🎫 Catégorie tickets', value: catId ? `<#${catId}>` : '*Non configurée*', inline: true },
+          { name: '👋 Salon bienvenue', value: welcomeId ? `<#${welcomeId}>` : '*Non configuré*', inline: true },
           { name: '❌ Message de refus', value: refusMsg || '*Message par défaut*', inline: false },
         )
         .setTimestamp();

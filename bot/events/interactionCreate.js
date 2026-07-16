@@ -193,7 +193,11 @@ module.exports = {
       // Désactiver les boutons
       await disableButtons(interaction);
 
-      await interaction.editReply({ content: '✅ Demande acceptée et rôle attribué !' });
+      // Fermer le ticket après 5 secondes
+      await interaction.channel.send({ content: '🔒 Ticket fermé dans 5 secondes...' });
+      setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
+
+      await interaction.editReply({ content: '✅ Demande acceptée, rôle attribué, ticket fermé dans 5s.' });
       return;
     }
 

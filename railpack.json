@@ -1,0 +1,8 @@
+{
+  "start": "cd bot && node index.js",
+  "steps": {
+    "install": {
+      "cmds": ["cd bot && npm install"]
+    }
+  }
+}

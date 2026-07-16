@@ -8,101 +8,103 @@ const {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('backup')
-    .setDescription('Crée une copie de tous les salons du serveur')
+    .setDescription('Copie tous les salons de ce serveur vers un autre serveur')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(opt =>
-      opt.setName('nom')
-        .setDescription('Nom du groupe de backup (défaut: BACKUP)')
-        .setRequired(false)
+      opt.setName('serveur_id')
+        .setDescription('ID du serveur de destination (le bot doit y être présent)')
+        .setRequired(true)
     ),
 
-  async execute(interaction) {
+  async execute(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
 
-    const guild = interaction.guild;
-    const backupName = interaction.options.getString('nom') || 'BACKUP';
+    const targetId = interaction.options.getString('serveur_id');
+    const sourceGuild = interaction.guild;
 
-    // Récupérer tous les channels
-    const channels = await guild.channels.fetch();
+    // Vérifier que le bot est dans le serveur cible
+    const targetGuild = client.guilds.cache.get(targetId);
+    if (!targetGuild) {
+      return interaction.editReply({
+        content: `❌ Le bot n'est pas présent sur le serveur \`${targetId}\`.\nInvite d'abord le bot sur ce serveur.`,
+      });
+    }
 
-    // Trier : catégories d'abord, puis les autres
-    const categories = channels.filter(c => c.type === ChannelType.GuildCategory).sort((a, b) => a.position - b.position);
-    const textChannels = channels.filter(c => c.type === ChannelType.GuildText).sort((a, b) => a.position - b.position);
-    const voiceChannels = channels.filter(c => c.type === ChannelType.GuildVoice).sort((a, b) => a.position - b.position);
-    const forumChannels = channels.filter(c => c.type === ChannelType.GuildForum).sort((a, b) => a.position - b.position);
+    if (targetGuild.id === sourceGuild.id) {
+      return interaction.editReply({ content: '❌ Le serveur de destination doit être différent de ce serveur.' });
+    }
 
-    // Map ancienID → nouveau channel
-    const categoryMap = new Map();
+    await interaction.editReply({ content: `⏳ Copie en cours vers **${targetGuild.name}**...` });
 
+    // Récupérer tous les channels source triés par position
+    const channels = await sourceGuild.channels.fetch();
+
+    const categories  = channels.filter(c => c.type === ChannelType.GuildCategory).sort((a, b) => a.position - b.position);
+    const texts       = channels.filter(c => c.type === ChannelType.GuildText).sort((a, b) => a.position - b.position);
+    const voices      = channels.filter(c => c.type === ChannelType.GuildVoice).sort((a, b) => a.position - b.position);
+    const forums      = channels.filter(c => c.type === ChannelType.GuildForum).sort((a, b) => a.position - b.position);
+
+    const catMap = new Map(); // ancienId → nouveauId
     let created = 0;
-    let errors = 0;
+    let errors  = 0;
 
-    // 1. Créer la catégorie racine du backup
-    const rootCategory = await guild.channels.create({
-      name: `📦 ${backupName}`,
-      type: ChannelType.GuildCategory,
-    }).catch(() => null);
-
-    // 2. Copier les catégories existantes
+    // 1. Copier les catégories
     for (const [, cat] of categories) {
-      const newCat = await guild.channels.create({
+      const newCat = await targetGuild.channels.create({
         name: cat.name,
         type: ChannelType.GuildCategory,
       }).catch(() => null);
 
-      if (newCat) {
-        categoryMap.set(cat.id, newCat.id);
-        created++;
-      } else {
-        errors++;
-      }
+      if (newCat) { catMap.set(cat.id, newCat.id); created++; }
+      else errors++;
     }
 
-    // 3. Copier les salons texte
-    for (const [, ch] of textChannels) {
-      const parentId = ch.parentId ? categoryMap.get(ch.parentId) : rootCategory?.id;
-      await guild.channels.create({
+    // 2. Copier les salons texte
+    for (const [, ch] of texts) {
+      const parentId = ch.parentId ? catMap.get(ch.parentId) : null;
+      const r = await targetGuild.channels.create({
         name: ch.name,
         type: ChannelType.GuildText,
         topic: ch.topic || null,
         nsfw: ch.nsfw,
         rateLimitPerUser: ch.rateLimitPerUser,
-        parent: parentId || rootCategory?.id || null,
-      }).catch(() => { errors++; return null; });
-      created++;
+        parent: parentId || null,
+      }).catch(() => null);
+      r ? created++ : errors++;
     }
 
-    // 4. Copier les salons vocaux
-    for (const [, ch] of voiceChannels) {
-      const parentId = ch.parentId ? categoryMap.get(ch.parentId) : rootCategory?.id;
-      await guild.channels.create({
+    // 3. Copier les salons vocaux
+    for (const [, ch] of voices) {
+      const parentId = ch.parentId ? catMap.get(ch.parentId) : null;
+      const r = await targetGuild.channels.create({
         name: ch.name,
         type: ChannelType.GuildVoice,
-        bitrate: ch.bitrate,
+        bitrate: Math.min(ch.bitrate, 96000),
         userLimit: ch.userLimit,
-        parent: parentId || rootCategory?.id || null,
-      }).catch(() => { errors++; return null; });
-      created++;
+        parent: parentId || null,
+      }).catch(() => null);
+      r ? created++ : errors++;
     }
 
-    // 5. Copier les forums
-    for (const [, ch] of forumChannels) {
-      const parentId = ch.parentId ? categoryMap.get(ch.parentId) : rootCategory?.id;
-      await guild.channels.create({
+    // 4. Copier les forums
+    for (const [, ch] of forums) {
+      const parentId = ch.parentId ? catMap.get(ch.parentId) : null;
+      const r = await targetGuild.channels.create({
         name: ch.name,
         type: ChannelType.GuildForum,
-        parent: parentId || rootCategory?.id || null,
-      }).catch(() => { errors++; return null; });
-      created++;
+        parent: parentId || null,
+      }).catch(() => null);
+      r ? created++ : errors++;
     }
 
     const embed = new EmbedBuilder()
-      .setTitle('📦 Backup terminé !')
+      .setTitle('✅ Copie terminée !')
       .setColor('#00FF7F')
       .addFields(
-        { name: '✅ Salons copiés', value: `${created}`, inline: true },
-        { name: '❌ Erreurs', value: `${errors}`, inline: true },
-        { name: '📁 Nom du backup', value: backupName, inline: true },
+        { name: '📤 Serveur source',      value: sourceGuild.name,  inline: true },
+        { name: '📥 Serveur destination', value: targetGuild.name,  inline: true },
+        { name: '✅ Salons copiés',       value: `${created}`,      inline: true },
+        { name: '❌ Erreurs',             value: `${errors}`,       inline: true },
       )
       .setTimestamp();
 

@@ -193,11 +193,16 @@ module.exports = {
       // Désactiver les boutons
       await disableButtons(interaction);
 
-      // Fermer le ticket après 5 secondes
-      await interaction.channel.send({ content: '🔒 Ticket fermé dans 5 secondes...' });
-      setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
+      // Fermer tous les tickets ouverts après 5 secondes
+      await interaction.channel.send({ content: '🔒 Fermeture de tous les tickets dans 5 secondes...' });
+      setTimeout(async () => {
+        const tickets = guild.channels.cache.filter(c => c.name.startsWith('ticket-'));
+        for (const [, ch] of tickets) {
+          await ch.delete().catch(() => {});
+        }
+      }, 5000);
 
-      await interaction.editReply({ content: '✅ Demande acceptée, rôle attribué, ticket fermé dans 5s.' });
+      await interaction.editReply({ content: '✅ Demande acceptée, rôle attribué, tous les tickets fermés dans 5s.' });
       return;
     }
 
